@@ -1,0 +1,25 @@
+# DocOS-rag 配置文件
+# 所有路径如果是相对路径,都相对于项目根目录解析
+
+embedding:
+  model: BAAI/bge-small-zh-v1.5   # 本地中文向量模型
+  device: mps                     # Apple 芯片用 mps(NVIDIA 用 cuda,其余用 cpu)
+  # bge v1.5 系列在做检索查询时推荐加这个前缀(文档内容本身不加)
+  query_prefix: "为这个句子生成表示以用于检索相关文章："
+
+chunking:
+  chunk_size: 512                 # 每个片段的最大字符数
+  chunk_overlap: 64               # 相邻片段之间的重叠字符数
+
+retrieval:
+  top_k: 4                        # 取最相似的前几个片段作为上下文
+
+llm:
+  provider: deepseek              # openai | deepseek | anthropic
+  model: deepseek-chat            # deepseek-chat(V3)或 deepseek-reasoner(R1)
+  temperature: 0.2
+  max_tokens: 1024
+
+paths:
+  raw_dir: data/raw               # 原始 Markdown 文档目录
+  index_dir: index                # 构建出的向量索引目录(可随时删除重建)
