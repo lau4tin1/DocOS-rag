@@ -30,3 +30,10 @@ class Embedder:
         """查询侧:给问题加前缀(部分模型需要),再向量化。"""
         query_text = self.cfg.query_prefix + text if self.cfg.query_prefix else text
         return self.embed([query_text])[0]
+
+    def count_tokens(self, text: str) -> int:
+        """用模型自己的 tokenizer 统计 token 数,与 512 上限口径一致。
+
+        add_special_tokens=False:只算正文 token;[CLS]/[SEP] 是固定开销,不计入长度。
+        """
+        return len(self.model.tokenizer.encode(text, add_special_tokens=False))

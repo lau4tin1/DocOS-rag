@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from typing import Callable
 
 from ..config import ChunkingConfig
 
@@ -11,15 +12,21 @@ _SENTENCE_SPLIT_RE = re.compile(r"(?<=[。！？!?；;])")
 _FENCE_RE = re.compile(r"^\s*```")
 
 
-def chunk_document(doc: dict, cfg: ChunkingConfig) -> list[dict]:
+def chunk_document(
+    doc: dict,
+    cfg: ChunkingConfig,
+    count_tokens: Callable[[str], int],
+) -> list[dict]:
     """把一个文档切成若干片段,按标题层级保留结构信息。
 
     doc: {"source": str, "title": str, "text": str}
+    count_tokens: 统计一段文本 token 数的函数(必须用 embedding 模型自己的
+        tokenizer,这样"片段长度"才和模型的 512 token 上限口径一致)。
     返回: [{"source","title","section","text","chunk_index"}, ...]
 
     思路:
       1. 按 Markdown 标题(## 等)把正文分到不同"小节"里;
-      2. 每个小节如果太长,再按"原子单元"切成 chunk_size 左右、带 overlap 的片段;
+      2. 每个小节如果太长(按 token 计),再切成 chunk_tokens 左右、带 overlap 的片段;
       3. 原子单元里,普通正文按句子切,而 ``` 代码块作为一个整体、永不切开;
       4. section 记录"一级标题 > 二级标题"这样的层级路径,供展示和过滤。
     """
@@ -35,7 +42,7 @@ def chunk_document(doc: dict, cfg: ChunkingConfig) -> list[dict]:
         if not body:
             return
         section = " > ".join(heading_stack) if heading_stack else doc["title"]
-        for i, piece in enumerate(_chunk_section(body, cfg)):
+        for i, piece in enumerate(_chunk_section(body, cfg, count_tokens)):
             chunks.append(
                 {
                     "source": doc["source"],
@@ -63,14 +70,18 @@ def chunk_document(doc: dict, cfg: ChunkingConfig) -> list[dict]:
     return chunks
 
 
-def _chunk_section(body: str, cfg: ChunkingConfig) -> list[str]:
-    if len(body) <= cfg.chunk_size:
+def _chunk_section(
+    body: str,
+    cfg: ChunkingConfig,
+    count_tokens: Callable[[str], int],
+) -> list[str]:
+    if count_tokens(body) <= cfg.chunk_tokens:
         return [body]
 
     units = _split_into_units(body)
     if not units:
         return [body]
-    return _merge_units(units, cfg.chunk_size, cfg.chunk_overlap)
+    return _merge_units(units, cfg, count_tokens)
 
 
 def _split_into_units(text: str) -> list[str]:
@@ -120,30 +131,38 @@ def _split_sentences(text: str) -> list[str]:
     return [p.strip() for p in parts if p.strip()]
 
 
-def _merge_units(units: list[str], chunk_size: int, overlap: int) -> list[str]:
-    """按字符数贪心合并单元成 chunk,相邻 chunk 重叠 overlap 个字符。
+def _merge_units(
+    units: list[str],
+    cfg: ChunkingConfig,
+    count_tokens: Callable[[str], int],
+) -> list[str]:
+    """按 token 数贪心合并单元成 chunk,相邻 chunk 重叠 overlap_tokens 个 token。
 
     代码块不参与重叠回退(避免把整段代码复制两遍),只有普通正文句子才回退。
     """
     chunks: list[str] = []
     cur: list[str] = []
-    cur_len = 0
+    cur_tokens = 0
 
     for u in units:
-        if cur and cur_len + len(u) > chunk_size:
+        t = count_tokens(u)
+        if cur and cur_tokens + t > cfg.chunk_tokens:
             chunks.append("".join(cur))
-            # 重叠:把当前 chunk 结尾不超过 overlap 的正文句子留作下一个 chunk 的开头
+            # 重叠:把当前 chunk 结尾不超过 overlap_tokens 的正文句子留作下一个 chunk 开头
             kept: list[str] = []
-            kept_len = 0
+            kept_tokens = 0
             for prev in reversed(cur):
-                if _is_code(prev) or kept_len + len(prev) > overlap:
+                if _is_code(prev):
+                    break
+                pt = count_tokens(prev)
+                if kept_tokens + pt > cfg.overlap_tokens:
                     break
                 kept.insert(0, prev)
-                kept_len += len(prev)
+                kept_tokens += pt
             cur = kept
-            cur_len = kept_len
+            cur_tokens = kept_tokens
         cur.append(u)
-        cur_len += len(u)
+        cur_tokens += t
 
     if cur:
         chunks.append("".join(cur))

@@ -21,7 +21,7 @@ def build_index(cfg: Config) -> int:
 
     all_chunks: list[dict] = []
     for doc in docs:
-        all_chunks.extend(chunk_document(doc, cfg.chunking))
+        all_chunks.extend(chunk_document(doc, cfg.chunking, embedder.count_tokens))
     if not all_chunks:
         print("警告: 没有产生任何片段,请检查文档内容。")
         return 0

@@ -20,8 +20,9 @@ class EmbeddingConfig:
 
 @dataclass
 class ChunkingConfig:
-    chunk_size: int = 512
-    chunk_overlap: int = 64
+    # 单位是 token,不是字符 —— 与 embedding 模型的 tokenizer 口径一致
+    chunk_tokens: int = 256
+    overlap_tokens: int = 32
 
 
 @dataclass

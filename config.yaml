@@ -8,8 +8,8 @@ embedding:
   query_prefix: "为这个句子生成表示以用于检索相关文章："
 
 chunking:
-  chunk_size: 512                 # 每个片段的最大字符数
-  chunk_overlap: 64               # 相邻片段之间的重叠字符数
+  chunk_tokens: 256               # 每个片段的最大 token 数(BGE 上限 512,留余量)
+  overlap_tokens: 32              # 相邻片段之间的重叠 token 数
 
 retrieval:
   top_k: 4                        # 取最相似的前几个片段作为上下文

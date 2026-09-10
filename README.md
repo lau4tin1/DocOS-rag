@@ -76,11 +76,11 @@ docrag ask "安装时报权限错误怎么办?" --show-sources
 
 ## 配置
 
-所有可调参数在 `config.yaml`(embedding 模型、chunk 大小、top-k、LLM 等)。
+所有可调参数在 `config.yaml`(embedding 模型、chunk 的 token 数、top-k、LLM 等)。
 
 ## 下一步的改进方向
 
-- 切分:保留 Markdown 代码块不切开、按 token 而非字符计数
+- 切分:超长单句/超长代码块的硬切、剥离 YAML frontmatter
 - 检索:BM25 关键词检索 + 向量检索混合、rerank 重排、按目录/版本做元数据过滤
 - 索引:numpy 换成 faiss 以支持大规模片段
 - 生成:流式输出、多轮对话
