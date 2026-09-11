@@ -34,12 +34,13 @@ def test_records_section_path():
 
 
 def test_code_block_stays_intact():
-    cfg = ChunkingConfig(chunk_tokens=6, overlap_tokens=0)  # 极小,逼它切
+    # chunk_tokens=40 足以容纳整个代码块(35 字符),但会切分旁边的长正文
+    cfg = ChunkingConfig(chunk_tokens=40, overlap_tokens=0)
     chunks = chunk_document(
         {"source": "a.md", "title": "t", "text": DOC}, cfg, _tokens
     )
     code_chunks = [c for c in chunks if "```python" in c["text"]]
-    assert len(code_chunks) == 1  # 代码块只出现在一个 chunk 里
+    assert len(code_chunks) == 1  # 代码块仍只出现在一个 chunk 里
     assert "def f():" in code_chunks[0]["text"]
     assert "return 1" in code_chunks[0]["text"]
 
@@ -64,3 +65,17 @@ def test_overlap_between_chunks():
     assert len(chunks) > 1
     # 每句 5 字符,chunk 装 4 句(20),重叠保留最后 2 句(10)
     assert chunks[0]["text"][-10:] == chunks[1]["text"][:10]
+
+
+def test_oversized_code_block_is_split():
+    cfg = ChunkingConfig(chunk_tokens=20, overlap_tokens=0)
+    code = "```python\n" + "\n".join(f"x = {i}" for i in range(20)) + "\n```"
+    doc = {"source": "a.md", "title": "t", "text": f"# T\n\n{code}"}
+    chunks = chunk_document(doc, cfg, _tokens)
+    # 不再有超长 chunk:每个都不超过上限
+    for c in chunks:
+        assert _tokens(c["text"]) <= 20
+    # 代码内容完整保留(所有 x = N 都在,单行不被切断)
+    joined = "".join(c["text"] for c in chunks)
+    for i in range(20):
+        assert f"x = {i}" in joined

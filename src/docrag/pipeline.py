@@ -5,7 +5,7 @@ import numpy as np
 from .config import Config
 from .embed.embedder import Embedder
 from .generate import llm
-from .ingest.chunker import chunk_document
+from .ingest.chunker import CHUNK_VERSION, chunk_document
 from .ingest.loader import hash_file, load_documents
 from .retrieve.hybrid import HybridRetriever
 from .retrieve.reranker import Reranker
@@ -31,6 +31,7 @@ def build_index(cfg: Config) -> int:
         "model": cfg.embedding.model,
         "chunk_tokens": cfg.chunking.chunk_tokens,
         "overlap_tokens": cfg.chunking.overlap_tokens,
+        "chunker": CHUNK_VERSION,
     }
     manifest = metadata.load_manifest(cfg.paths.index_dir)
 

@@ -10,6 +10,8 @@ _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[。！？!?；;])")
 # Markdown 代码围栏:行首(可有缩进)的 ```
 _FENCE_RE = re.compile(r"^\s*```")
+# 切分逻辑版本:改了 chunker 的切分规则就 +1,增量索引会据此自动全量重建
+CHUNK_VERSION = 2
 
 
 def chunk_document(
@@ -139,6 +141,7 @@ def _merge_units(
     """按 token 数贪心合并单元成 chunk,相邻 chunk 重叠 overlap_tokens 个 token。
 
     代码块不参与重叠回退(避免把整段代码复制两遍),只有普通正文句子才回退。
+    单个单元(通常是超长代码块)本身超过 chunk_tokens 时,做硬切兜底。
     """
     chunks: list[str] = []
     cur: list[str] = []
@@ -146,6 +149,14 @@ def _merge_units(
 
     for u in units:
         t = count_tokens(u)
+        if t > cfg.chunk_tokens:
+            # 兜底:单个原子单元本身就超过上限,只能硬切。
+            if cur:
+                chunks.append("".join(cur))
+                cur = []
+                cur_tokens = 0
+            chunks.extend(_split_oversized(u, cfg.chunk_tokens, count_tokens))
+            continue
         if cur and cur_tokens + t > cfg.chunk_tokens:
             chunks.append("".join(cur))
             # 重叠:把当前 chunk 结尾不超过 overlap_tokens 的正文句子留作下一个 chunk 开头
@@ -167,6 +178,67 @@ def _merge_units(
     if cur:
         chunks.append("".join(cur))
     return [c for c in chunks if c.strip()]
+
+
+def _split_oversized(
+    unit: str,
+    chunk_tokens: int,
+    count_tokens: Callable[[str], int],
+) -> list[str]:
+    """把一个超过 chunk_tokens 的单元硬切成若干 <= chunk_tokens 的片段。
+
+    代码块按行切(保持每行完整),普通正文按字符二分切。
+    """
+    if _is_code(unit):
+        return _split_code_block(unit, chunk_tokens, count_tokens)
+    return _split_by_chars(unit, chunk_tokens, count_tokens)
+
+
+def _split_code_block(
+    unit: str,
+    chunk_tokens: int,
+    count_tokens: Callable[[str], int],
+) -> list[str]:
+    """按行切分超长代码块,保证每一片 <= chunk_tokens、且不切断单行。"""
+    lines = unit.split("\n")
+    pieces: list[str] = []
+    cur: list[str] = []
+    cur_tokens = 0
+    for line in lines:
+        lt = count_tokens(line) + 1  # +1 是换行符
+        if cur and cur_tokens + lt > chunk_tokens:
+            pieces.append("\n".join(cur))
+            cur = []
+            cur_tokens = 0
+        cur.append(line)
+        cur_tokens += lt
+    if cur:
+        pieces.append("\n".join(cur))
+    return [p for p in pieces if p.strip()]
+
+
+def _split_by_chars(
+    unit: str,
+    chunk_tokens: int,
+    count_tokens: Callable[[str], int],
+) -> list[str]:
+    """按字符二分,找到不超过 chunk_tokens 的最大前缀,递归切完(罕见:非代码超长单元)。"""
+    pieces: list[str] = []
+    rest = unit
+    while rest:
+        lo, hi, best = 1, len(rest), 0
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            if count_tokens(rest[:mid]) <= chunk_tokens:
+                best = mid
+                lo = mid + 1
+            else:
+                hi = mid - 1
+        if best == 0:
+            best = 1  # 极端情况下至少前进 1 字符,避免死循环
+        pieces.append(rest[:best])
+        rest = rest[best:]
+    return pieces
 
 
 def _is_code(unit: str) -> bool:
