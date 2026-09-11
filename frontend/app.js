@@ -92,12 +92,14 @@ fileInputEl.addEventListener("change", () => {
 });
 
 // ---- 聊天 ----
-function appendSources(wrap, sources) {
+function appendSources(wrap, sources, query) {
   if (!sources || !sources.length) return;
   const details = document.createElement("details");
   details.className = "sources";
   const summary = document.createElement("summary");
-  summary.textContent = `来源 (${sources.length})`;
+  summary.textContent = query
+    ? `来源 (${sources.length}) · 检索问题:${query}`
+    : `来源 (${sources.length})`;
   details.appendChild(summary);
   for (const s of sources) {
     const p = document.createElement("div");
@@ -134,8 +136,6 @@ async function streamChat(text) {
   messagesEl.appendChild(wrap);
   scrollToBottom();
 
-  let sources = null;
-
   try {
     const res = await fetch("/api/chat", {
       method: "POST",
@@ -165,15 +165,13 @@ async function streamChat(text) {
           continue;
         }
         if (ev.type === "sources") {
-          sources = ev.sources;
+          appendSources(wrap, ev.sources, ev.query && ev.query !== text ? ev.query : null);
         } else if (ev.type === "delta") {
           bubble.textContent += ev.text;
           scrollToBottom();
         }
       }
     }
-
-    if (sources && sources.length) appendSources(wrap, sources);
   } catch (err) {
     bubble.textContent += "\n[连接出错:" + err.message + "]";
     scrollToBottom();

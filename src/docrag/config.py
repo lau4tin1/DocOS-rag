@@ -33,6 +33,7 @@ class RetrievalConfig:
     rerank: bool = True     # 是否用交叉编码器对候选做精排
     rerank_model: str = "BAAI/bge-reranker-base"   # 交叉编码器模型
     rerank_top_n: int = 12  # 先粗召回多少个候选,精排后再取 top_k
+    rewrite_query: bool = True  # 多轮对话时是否把追问改写为独立查询再检索
 
 
 @dataclass

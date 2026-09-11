@@ -179,13 +179,23 @@ class RAGEngine:
             return reranker.rerank(question, candidates, self.cfg.retrieval.top_k)
         return candidates[: self.cfg.retrieval.top_k]
 
+    def _rewrite(self, question: str, history: list[dict]) -> str:
+        """把追问改写成独立查询(用于检索);无需改写则回退原问题。"""
+        if history and self.cfg.retrieval.rewrite_query:
+            return llm.rewrite_query(question, history, self.cfg.llm)
+        return question
+
     def answer(
         self,
         question: str,
         history: list[dict],
     ) -> tuple[str, list[tuple[float, dict]]]:
-        """给定问题(和之前的对话),返回 (答案, 命中的片段列表)。"""
-        results = self.retrieve(question)
+        """给定问题(和之前的对话),返回 (答案, 命中的片段列表)。
+
+        检索用"改写后的独立查询",生成仍用原始问题(结合历史理解本意)。
+        """
+        query = self._rewrite(question, history)
+        results = self.retrieve(query)
         if not results:
             return "还没有索引任何文档,请先上传 .md / .txt / .pdf 文件。", []
         messages = llm.build_chat_messages(results, question, history)
@@ -196,8 +206,10 @@ class RAGEngine:
         """流式版本:先发 sources 事件,再逐段发 delta,最后发 done。
 
         事件为 dict:{"type": "sources"|"delta"|"done", ...}。
+        sources 事件里带 query(实际用于检索的改写后查询),便于调试。
         """
-        results = self.retrieve(question)
+        query = self._rewrite(question, history)
+        results = self.retrieve(query)
         sources = [
             {
                 "score": round(score, 4),
@@ -207,7 +219,7 @@ class RAGEngine:
             }
             for score, chunk in results
         ]
-        yield {"type": "sources", "sources": sources}
+        yield {"type": "sources", "sources": sources, "query": query}
 
         if not results:
             yield {"type": "delta", "text": "还没有索引任何文档,请先上传 .md / .txt / .pdf 文件。"}

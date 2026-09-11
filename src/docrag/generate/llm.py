@@ -14,6 +14,12 @@ SYSTEM_PROMPT = (
     "这是多轮对话,请结合之前的对话理解当前问题(尤其是代词、省略指代)。"
 )
 
+REWRITE_SYSTEM = (
+    "你是一个查询改写助手。根据对话历史,把用户当前的问题改写成独立、完整、"
+    "适合做向量检索的查询:消解其中的代词、省略和指代。"
+    "只输出改写后的查询文本本身,不要解释,不要加引号。"
+)
+
 
 def _context_text(results: list[tuple[float, dict]]) -> str:
     blocks = []
@@ -63,6 +69,28 @@ def build_chat_messages(
     )
     messages.append({"role": "user", "content": user})
     return messages
+
+
+def rewrite_query(question: str, history: list[dict], cfg: LLMConfig) -> str:
+    """把(可能含代词/省略的)问题改写成独立查询,用于检索。
+
+    只用最近几轮历史;没有历史、改写失败或结果为空时,回退到原问题(永不抛异常)。
+    """
+    if not history:
+        return question
+
+    recent = history[-6:]
+    lines = [f"{t['role']}: {t['content']}" for t in recent]
+    user = "对话历史:\n" + "\n".join(lines) + f"\n\n当前问题: {question}\n\n改写后的查询:"
+    messages = [
+        {"role": "system", "content": REWRITE_SYSTEM},
+        {"role": "user", "content": user},
+    ]
+    try:
+        rewritten = generate_messages(messages, cfg).strip()
+    except Exception:
+        return question
+    return rewritten or question
 
 
 def generate(system: str, user: str, cfg: LLMConfig) -> str:

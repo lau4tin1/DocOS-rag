@@ -18,6 +18,7 @@ retrieval:
   rerank: true                    # 用交叉编码器对候选精排(两阶段检索)
   rerank_model: BAAI/bge-reranker-base   # 交叉编码器模型
   rerank_top_n: 12                # 先粗召回多少个候选,精排后再取 top_k
+  rewrite_query: true             # 多轮追问时先改写为独立查询再检索
 
 llm:
   provider: deepseek              # openai | deepseek | anthropic
