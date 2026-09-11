@@ -25,3 +25,20 @@ def load_index(index_dir: str | Path) -> tuple[np.ndarray, list[dict]]:
     with open(index_dir / "chunks.json", "r", encoding="utf-8") as f:
         chunks = json.load(f)
     return vectors, chunks
+
+
+def save_manifest(index_dir: str | Path, manifest: dict) -> None:
+    """保存"文件 -> 内容哈希 + 配置"的清单,供增量索引判断复用。"""
+    index_dir = Path(index_dir)
+    index_dir.mkdir(parents=True, exist_ok=True)
+    with open(index_dir / "manifest.json", "w", encoding="utf-8") as f:
+        json.dump(manifest, f, ensure_ascii=False, indent=2)
+
+
+def load_manifest(index_dir: str | Path) -> dict:
+    """读取清单;不存在时返回空 dict(表示"第一次建索引")。"""
+    p = Path(index_dir) / "manifest.json"
+    if not p.exists():
+        return {}
+    with open(p, "r", encoding="utf-8") as f:
+        return json.load(f)

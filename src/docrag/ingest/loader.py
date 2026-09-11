@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from pathlib import Path
 
@@ -27,3 +28,8 @@ def load_documents(raw_dir: str | Path) -> list[dict]:
     for p in sorted(raw_dir.rglob("*.md")):
         docs.append(load_markdown_file(p))
     return docs
+
+
+def hash_file(path: str | Path) -> str:
+    """返回文件内容的 SHA-256 十六进制哈希,用于增量索引判断文件是否变化。"""
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
