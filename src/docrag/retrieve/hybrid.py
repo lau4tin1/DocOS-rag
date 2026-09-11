@@ -5,6 +5,20 @@ from ..store.index import NumpyIndex
 from .bm25 import BM25Index
 
 
+def rrf_fuse(ranks: list[dict[int, int]], k: int = 60) -> dict[int, float]:
+    """RRF(Reciprocal Rank Fusion)融合:每个检索器给一份 {doc_id: rank},rank 从 0 开始。
+
+    对每个文档,把各检索器贡献的 1/(k + rank) 相加。
+    只依赖"排名"而非"分数尺度",因此能公平融合向量(余弦 ∈[0,1])与 BM25(无上限)。
+    抽成纯函数是为了便于单元测试。
+    """
+    scores: dict[int, float] = {}
+    for rank_map in ranks:
+        for doc_id, rank in rank_map.items():
+            scores[doc_id] = scores.get(doc_id, 0.0) + 1.0 / (k + rank)
+    return scores
+
+
 class HybridRetriever:
     """混合检索:向量语义 + BM25 关键词,用 RRF 融合。
 
@@ -53,14 +67,7 @@ class HybridRetriever:
         bm25_rank = {idx: i for i, (_, idx) in enumerate(bm25_ranked)}
 
         # 3) RRF 融合
-        rrf: dict[int, float] = {}
-        for doc_id in range(n):
-            s = 0.0
-            if doc_id in vec_rank:
-                s += 1.0 / (self.rrf_k + vec_rank[doc_id])
-            if doc_id in bm25_rank:
-                s += 1.0 / (self.rrf_k + bm25_rank[doc_id])
-            rrf[doc_id] = s
+        rrf = rrf_fuse([vec_rank, bm25_rank], k=self.rrf_k)
 
         order = sorted(range(n), key=lambda i: -rrf[i])[:top_k]
         return [(rrf[i], self.chunks[i]) for i in order]

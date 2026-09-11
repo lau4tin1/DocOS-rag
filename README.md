@@ -16,7 +16,7 @@
 | ingest | `src/docrag/ingest/loader.py` / `chunker.py` | 读文件、按标题结构切分片段 |
 | embed | `src/docrag/embed/embedder.py` | 文本 -> 向量(本地 BGE 模型) |
 | store | `src/docrag/store/index.py` / `metadata.py` | numpy 余弦检索 + 持久化 |
-| retrieve | `src/docrag/retrieve/`(`retriever.py` / `bm25.py` / `hybrid.py`) | 向量 + BM25 混合检索(RRF 融合)-> top-k 片段 |
+| retrieve | `src/docrag/retrieve/`(向量 / BM25 / 混合 RRF / rerank) | 两阶段检索:粗召回 + 交叉编码器精排 |
 | generate | `src/docrag/generate/llm.py` | 组装 prompt + 调 LLM API |
 | pipeline | `src/docrag/pipeline.py` | 串起 index / ask 两个入口 |
 
@@ -78,9 +78,20 @@ docrag ask "安装时报权限错误怎么办?" --show-sources
 
 所有可调参数在 `config.yaml`(embedding 模型、chunk 的 token 数、top-k、LLM 等)。
 
+## 测试
+
+```bash
+pip install -e ".[dev]"     # 安装 pytest(开发依赖)
+pytest                      # 运行 tests/ 下的全部单元测试
+```
+
+测试只依赖少量合成输入,不加载模型、不联网,秒级完成。重依赖的模型
+(embedding/交叉编码器)在测试里用"假对象"注入,这也是当初把
+`count_tokens`、`Reranker` 等设计成可注入的原因。
+
 ## 下一步的改进方向
 
 - 切分:超长单句/超长代码块的硬切、剥离 YAML frontmatter
-- 检索:rerank 重排、按目录/版本做元数据过滤
+- 检索:按目录/版本做元数据过滤
 - 索引:numpy 换成 faiss 以支持大规模片段
 - 生成:流式输出、多轮对话

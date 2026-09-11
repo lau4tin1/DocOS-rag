@@ -15,6 +15,9 @@ retrieval:
   top_k: 4                        # 最终返回给 LLM 的片段数
   hybrid: true                    # true=混合检索(BM25 关键词 + 向量语义);false=纯向量
   rrf_k: 60                       # RRF 融合常数(只影响排名,不依赖分数尺度)
+  rerank: true                    # 用交叉编码器对候选精排(两阶段检索)
+  rerank_model: BAAI/bge-reranker-base   # 交叉编码器模型
+  rerank_top_n: 12                # 先粗召回多少个候选,精排后再取 top_k
 
 llm:
   provider: deepseek              # openai | deepseek | anthropic

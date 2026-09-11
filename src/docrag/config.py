@@ -30,6 +30,9 @@ class RetrievalConfig:
     top_k: int = 4          # 最终返回给 LLM 的片段数
     hybrid: bool = True     # True=混合检索(BM25 关键词 + 向量语义);False=纯向量
     rrf_k: int = 60         # RRF 融合常数
+    rerank: bool = True     # 是否用交叉编码器对候选做精排
+    rerank_model: str = "BAAI/bge-reranker-base"   # 交叉编码器模型
+    rerank_top_n: int = 12  # 先粗召回多少个候选,精排后再取 top_k
 
 
 @dataclass

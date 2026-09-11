@@ -6,6 +6,7 @@ from .generate import llm
 from .ingest.chunker import chunk_document
 from .ingest.loader import load_documents
 from .retrieve.hybrid import HybridRetriever
+from .retrieve.reranker import Reranker
 from .retrieve.retriever import Retriever
 from .store import metadata
 from .store.index import NumpyIndex
@@ -50,7 +51,17 @@ def ask(question: str, cfg: Config) -> tuple[str, list[tuple[float, dict]]]:
     else:
         retriever = Retriever(embedder, index)
 
-    results = retriever.retrieve(question, cfg.retrieval.top_k)
+    # 两阶段检索:粗召回(快但糙)-> 交叉编码器精排(慢但准)
+    recall_n = (
+        cfg.retrieval.rerank_top_n if cfg.retrieval.rerank else cfg.retrieval.top_k
+    )
+    candidates = retriever.retrieve(question, recall_n)
+
+    if cfg.retrieval.rerank and len(candidates) > cfg.retrieval.top_k:
+        reranker = Reranker(cfg.retrieval.rerank_model)
+        results = reranker.rerank(question, candidates, cfg.retrieval.top_k)
+    else:
+        results = candidates[: cfg.retrieval.top_k]
 
     system, user = llm.build_prompt(results, question)
     answer = llm.generate(system, user, cfg.llm)
