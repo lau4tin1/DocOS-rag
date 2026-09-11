@@ -5,6 +5,7 @@ from .embed.embedder import Embedder
 from .generate import llm
 from .ingest.chunker import chunk_document
 from .ingest.loader import load_documents
+from .retrieve.hybrid import HybridRetriever
 from .retrieve.retriever import Retriever
 from .store import metadata
 from .store.index import NumpyIndex
@@ -42,7 +43,12 @@ def ask(question: str, cfg: Config) -> tuple[str, list[tuple[float, dict]]]:
     index.add(vectors, chunks)
 
     embedder = Embedder(cfg.embedding)
-    retriever = Retriever(embedder, index)
+    if cfg.retrieval.hybrid:
+        retriever = HybridRetriever(
+            embedder, index, chunks, rrf_k=cfg.retrieval.rrf_k
+        )
+    else:
+        retriever = Retriever(embedder, index)
 
     results = retriever.retrieve(question, cfg.retrieval.top_k)
 

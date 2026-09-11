@@ -16,7 +16,7 @@
 | ingest | `src/docrag/ingest/loader.py` / `chunker.py` | 读文件、按标题结构切分片段 |
 | embed | `src/docrag/embed/embedder.py` | 文本 -> 向量(本地 BGE 模型) |
 | store | `src/docrag/store/index.py` / `metadata.py` | numpy 余弦检索 + 持久化 |
-| retrieve | `src/docrag/retrieve/retriever.py` | 查询向量 -> top-k 片段 |
+| retrieve | `src/docrag/retrieve/`(`retriever.py` / `bm25.py` / `hybrid.py`) | 向量 + BM25 混合检索(RRF 融合)-> top-k 片段 |
 | generate | `src/docrag/generate/llm.py` | 组装 prompt + 调 LLM API |
 | pipeline | `src/docrag/pipeline.py` | 串起 index / ask 两个入口 |
 
@@ -81,6 +81,6 @@ docrag ask "安装时报权限错误怎么办?" --show-sources
 ## 下一步的改进方向
 
 - 切分:超长单句/超长代码块的硬切、剥离 YAML frontmatter
-- 检索:BM25 关键词检索 + 向量检索混合、rerank 重排、按目录/版本做元数据过滤
+- 检索:rerank 重排、按目录/版本做元数据过滤
 - 索引:numpy 换成 faiss 以支持大规模片段
 - 生成:流式输出、多轮对话

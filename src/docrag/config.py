@@ -27,7 +27,9 @@ class ChunkingConfig:
 
 @dataclass
 class RetrievalConfig:
-    top_k: int = 4
+    top_k: int = 4          # 最终返回给 LLM 的片段数
+    hybrid: bool = True     # True=混合检索(BM25 关键词 + 向量语义);False=纯向量
+    rrf_k: int = 60         # RRF 融合常数
 
 
 @dataclass

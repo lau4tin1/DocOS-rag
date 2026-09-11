@@ -12,7 +12,9 @@ chunking:
   overlap_tokens: 32              # 相邻片段之间的重叠 token 数
 
 retrieval:
-  top_k: 4                        # 取最相似的前几个片段作为上下文
+  top_k: 4                        # 最终返回给 LLM 的片段数
+  hybrid: true                    # true=混合检索(BM25 关键词 + 向量语义);false=纯向量
+  rrf_k: 60                       # RRF 融合常数(只影响排名,不依赖分数尺度)
 
 llm:
   provider: deepseek              # openai | deepseek | anthropic

@@ -40,7 +40,7 @@ def main() -> None:
         if args.show_sources:
             print("\n" + "=" * 40 + " 来源 " + "=" * 40)
             for score, c in sources:
-                print(f"\n[相似度 {score:.4f}] {c.get('source')} — {c.get('section')}")
+                print(f"\n[得分 {score:.4f}] {c.get('source')} — {c.get('section')}")
                 print(c.get("text", "")[:200])
 
 
