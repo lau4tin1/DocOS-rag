@@ -39,8 +39,24 @@ async function refreshDocuments() {
     li.className = "doc-item";
     li.innerHTML =
       `<span class="doc-name" title="${escapeHtml(d.name)}">${escapeHtml(d.name)}</span>` +
-      `<span class="doc-count">${d.chunks} 片段</span>`;
+      `<span class="doc-meta">` +
+      `<span class="doc-count">${d.chunks} 片段</span>` +
+      `<button class="del-btn" title="删除">✕</button></span>`;
+    li.querySelector(".del-btn").addEventListener("click", () => deleteDocument(d.name));
     docListEl.appendChild(li);
+  }
+}
+
+async function deleteDocument(name) {
+  if (!confirm(`确定删除「${name}」及其全部索引吗?`)) return;
+  setStatus(`删除中 ${name}...`, "info");
+  try {
+    const res = await fetch("/api/documents/" + encodeURIComponent(name), { method: "DELETE" });
+    const data = await res.json();
+    setStatus(`已删除 ${data.deleted} · 共 ${data.total_chunks} 片段`, "ok");
+    refreshDocuments();
+  } catch (e) {
+    setStatus("删除失败:" + e.message, "error");
   }
 }
 

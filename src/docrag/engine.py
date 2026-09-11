@@ -17,6 +17,53 @@ from .store import metadata
 from .store.index import NumpyIndex
 
 
+def _find_renamed_source(manifest: dict, content_hash: str, exclude: str) -> str | None:
+    """在 manifest 里找另一个 source,其内容哈希 == content_hash(改名检测)。"""
+    for src, entry in manifest.items():
+        if src != exclude and entry.get("hash") == content_hash:
+            return src
+    return None
+
+
+def plan_index_update(
+    docs: list[dict],
+    manifest: dict,
+    config_sig: dict,
+) -> tuple[dict, set[str], set[str], dict]:
+    """规划增量索引:把每个文件分为 未变/改名/需重跑,并算新 manifest 与被删文件。
+
+    manifest 是"上次索引过哪些文件"的权威记录(含 0 片段的空文件)。
+    返回 (reuse_map, to_embed, deleted, new_manifest):
+      - reuse_map: source -> 复用来源(等于自己 = 未变;不等于 = 改名)
+      - to_embed: 需要重新向量化的 source 集合
+      - deleted: 真正被删除(未被改名复用)的旧 source 集合
+      - new_manifest: 新的 {source: {hash, config}}
+    """
+    new_manifest: dict = {}
+    reuse_map: dict = {}
+    to_embed: set[str] = set()
+
+    for doc in docs:
+        source = doc["source"]
+        h = hash_file(source)
+        entry = manifest.get(source, {})
+        new_manifest[source] = {"hash": h, "config": config_sig}
+
+        if entry.get("hash") == h and entry.get("config") == config_sig:
+            reuse_map[source] = source  # 未变化(即使 0 片段)
+        else:
+            renamed_from = _find_renamed_source(manifest, h, source)
+            if renamed_from:
+                reuse_map[source] = renamed_from  # 改名
+            else:
+                to_embed.add(source)  # 新文件或内容变化
+
+    current = {d["source"] for d in docs}
+    reused_old = set(reuse_map.values())
+    deleted = set(manifest.keys()) - current - reused_old
+    return reuse_map, to_embed, deleted, new_manifest
+
+
 class RAGEngine:
     """状态化的 RAG 引擎:常驻持有模型与索引,供 web 服务复用。
 
@@ -58,10 +105,8 @@ class RAGEngine:
         return len(chunks)
 
     def build_index(self) -> int:
-        """增量建索引:只重跑变更的文件。完成后同步更新内存中的索引。"""
+        """增量建索引:只重跑变更的文件;支持改名检测。完成后同步更新内存索引。"""
         docs = load_documents(self.cfg.paths.raw_dir)
-        if not docs:
-            return 0
 
         config_sig = {
             "model": self.cfg.embedding.model,
@@ -72,8 +117,6 @@ class RAGEngine:
         manifest = metadata.load_manifest(self.cfg.paths.index_dir)
 
         old_by_source: dict[str, list[tuple[np.ndarray, dict]]] = {}
-        old_vectors = None
-        old_chunks: list[dict] = []
         try:
             old_vectors, old_chunks = metadata.load_index(self.cfg.paths.index_dir)
             for v, c in zip(old_vectors, old_chunks):
@@ -81,36 +124,31 @@ class RAGEngine:
         except FileNotFoundError:
             pass
 
-        new_manifest: dict = {}
-        to_embed: set[str] = set()
-        for doc in docs:
-            source = doc["source"]
-            h = hash_file(source)
-            entry = manifest.get(source, {})
-            unchanged = (
-                old_vectors is not None
-                and entry.get("hash") == h
-                and entry.get("config") == config_sig
-                and source in old_by_source
-            )
-            new_manifest[source] = {"hash": h, "config": config_sig}
-            if not unchanged:
-                to_embed.add(source)
+        if not docs:
+            # 目录为空/无支持格式:清空索引
+            if manifest:
+                metadata.clear_index(self.cfg.paths.index_dir)
+                self.index = NumpyIndex()
+                self.chunks = []
+            return 0
 
-        old_sources = set(old_by_source.keys())
-        current_sources = {doc["source"] for doc in docs}
-        deleted = old_sources - current_sources
+        reuse_map, to_embed, deleted, new_manifest = plan_index_update(
+            docs, manifest, config_sig
+        )
+        renamed = {src: dst for src, dst in reuse_map.items() if dst != src}
 
-        if not to_embed and not deleted:
+        if not to_embed and not deleted and not renamed:
             self.reload()
             return len(self.chunks)
 
         if to_embed:
             embedder = self._embedder()
             msg = (
-                f"增量索引:复用 {len(docs) - len(to_embed)} 个文件,"
+                f"增量索引:复用 {len(reuse_map)} 个文件,"
                 f"重新向量化 {len(to_embed)} 个文件"
             )
+            if renamed:
+                msg += f",检测到 {len(renamed)} 个改名"
             if deleted:
                 msg += f",移除 {len(deleted)} 个已删除文件"
             print(msg)
@@ -123,23 +161,24 @@ class RAGEngine:
                     chunks = chunk_document(doc, self.cfg.chunking, embedder.count_tokens)
                     vecs = embedder.embed([c["text"] for c in chunks])
                 else:
-                    chunks = [c for _, c in old_by_source[source]]
-                    vecs = [v for v, _ in old_by_source[source]]
+                    old_src = reuse_map[source]
+                    chunks = [dict(c, source=source) for _, c in old_by_source.get(old_src, [])]
+                    vecs = [v for v, _ in old_by_source.get(old_src, [])]
                 new_chunks.extend(chunks)
                 new_vectors.extend(vecs)
         else:
-            # 只有删除,无需向量化
-            print(f"检测到 {len(deleted)} 个文件被删除,更新索引(无需重新向量化)。")
+            # 只有删除/改名,无需向量化
+            print(f"检测到 {len(deleted)} 个删除 / {len(renamed)} 个改名,更新索引(无需重新向量化)。")
             new_chunks = []
             new_vectors = []
             for doc in docs:
                 source = doc["source"]
-                new_chunks.extend(c for _, c in old_by_source[source])
-                new_vectors.extend(v for v, _ in old_by_source[source])
+                old_src = reuse_map[source]
+                new_chunks.extend(dict(c, source=source) for _, c in old_by_source.get(old_src, []))
+                new_vectors.extend(v for v, _ in old_by_source.get(old_src, []))
 
         if not new_chunks:
-            metadata.save_index(self.cfg.paths.index_dir, np.zeros((0, 512), dtype="float32"), [])
-            metadata.save_manifest(self.cfg.paths.index_dir, new_manifest)
+            metadata.clear_index(self.cfg.paths.index_dir)
             self.index = NumpyIndex()
             self.chunks = []
             return 0
@@ -150,6 +189,14 @@ class RAGEngine:
         self.index.add(matrix, new_chunks)
         self.chunks = new_chunks
         return len(new_chunks)
+
+    def delete_file(self, name: str) -> dict:
+        """删除一个文件(连同其 chunk 与向量)。name 为文件名。"""
+        target = Path(self.cfg.paths.raw_dir) / name
+        if target.exists():
+            target.unlink()
+        n = self.build_index()  # 增量索引会自动移除该文件的 chunk/向量
+        return {"deleted": name, "total_chunks": n}
 
     # ---------- 检索与生成 ----------
 

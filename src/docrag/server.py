@@ -59,6 +59,11 @@ def documents():
     return engine.list_documents()
 
 
+@app.delete("/api/documents/{name}")
+def delete_document(name: str):
+    return engine.delete_file(name)
+
+
 @app.post("/api/chat")
 def chat(req: ChatRequest):
     cid = req.conversation_id or uuid.uuid4().hex

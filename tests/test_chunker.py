@@ -79,3 +79,28 @@ def test_oversized_code_block_is_split():
     joined = "".join(c["text"] for c in chunks)
     for i in range(20):
         assert f"x = {i}" in joined
+
+
+def test_english_sentences_split():
+    from docrag.ingest.chunker import _split_sentences
+
+    parts = _split_sentences("First sentence. Second sentence. Third sentence.")
+    assert len(parts) == 3
+
+
+def test_english_abbreviation_not_split():
+    from docrag.ingest.chunker import _split_sentences
+
+    parts = _split_sentences("Use e.g. a tool. Then another.")
+    assert len(parts) == 2
+    assert parts[0].strip().endswith("tool.")
+
+
+def test_oversized_english_word_aware_split():
+    from docrag.ingest.chunker import _split_by_chars
+
+    unit = "alpha bravo charlie delta echo foxtrot golf"
+    pieces = _split_by_chars(unit, chunk_tokens=12, count_tokens=lambda t: len(t))
+    assert " ".join(pieces) == unit  # 单词不丢失、不被从中间劈开
+    for p in pieces:
+        assert len(p) <= 12

@@ -42,3 +42,12 @@ def load_manifest(index_dir: str | Path) -> dict:
         return {}
     with open(p, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def clear_index(index_dir: str | Path) -> None:
+    """删除索引与清单文件(用于清空索引)。"""
+    index_dir = Path(index_dir)
+    for name in ("vectors.npy", "chunks.json", "manifest.json"):
+        p = index_dir / name
+        if p.exists():
+            p.unlink()

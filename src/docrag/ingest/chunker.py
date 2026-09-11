@@ -6,12 +6,13 @@ from typing import Callable
 from ..config import ChunkingConfig
 
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
-# 在句末标点后切分(保留标点),适配中文和英文
-_SENTENCE_SPLIT_RE = re.compile(r"(?<=[。！？!?；;])")
+# 句末切分:中文/ASCII 标点直接切;英文句号 . 后跟空白+大写/数字时才切
+# (避免误切 "e.g."、"3.14" 这类)
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[。！？!?；;])|(?<=\.)[ \t\n]+(?=[A-Z0-9])")
 # Markdown 代码围栏:行首(可有缩进)的 ```
 _FENCE_RE = re.compile(r"^\s*```")
 # 切分逻辑版本:改了 chunker 的切分规则就 +1,增量索引会据此自动全量重建
-CHUNK_VERSION = 2
+CHUNK_VERSION = 3
 
 
 def chunk_document(
@@ -222,7 +223,13 @@ def _split_by_chars(
     chunk_tokens: int,
     count_tokens: Callable[[str], int],
 ) -> list[str]:
-    """按字符二分,找到不超过 chunk_tokens 的最大前缀,递归切完(罕见:非代码超长单元)。"""
+    """把超长单元按词/字符硬切,保证每片 <= chunk_tokens。
+
+    有空格(英文等)时按"词"边界切,避免把单词劈成两半;无空格(中文)按字符二分。
+    """
+    if " " in unit:
+        return _split_by_words(unit, chunk_tokens, count_tokens)
+
     pieces: list[str] = []
     rest = unit
     while rest:
@@ -239,6 +246,29 @@ def _split_by_chars(
         pieces.append(rest[:best])
         rest = rest[best:]
     return pieces
+
+
+def _split_by_words(
+    unit: str,
+    chunk_tokens: int,
+    count_tokens: Callable[[str], int],
+) -> list[str]:
+    """按空格分词,贪心聚合成 <= chunk_tokens 的片段(不切断单词)。"""
+    words = unit.split(" ")
+    pieces: list[str] = []
+    cur: list[str] = []
+    cur_tokens = 0
+    for w in words:
+        wt = count_tokens(w) + 1  # +1 是空格
+        if cur and cur_tokens + wt > chunk_tokens:
+            pieces.append(" ".join(cur))
+            cur = []
+            cur_tokens = 0
+        cur.append(w)
+        cur_tokens += wt
+    if cur:
+        pieces.append(" ".join(cur))
+    return [p for p in pieces if p.strip()]
 
 
 def _is_code(unit: str) -> bool:
