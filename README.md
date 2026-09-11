@@ -54,6 +54,8 @@ export DEEPSEEK_API_KEY=sk-...   # 或 OPENAI_API_KEY / ANTHROPIC_API_KEY
 
 ```bash
 docrag index                              # 建索引(增量,只跑新/改文件)
+docrag list                               # 列出已索引的文件
+docrag delete 某个文件.pdf                 # 删除文件及其 chunk/向量
 docrag ask "如何安装 DocOS?"              # 提问
 docrag ask "..." --show-sources           # 附带命中的来源
 ```

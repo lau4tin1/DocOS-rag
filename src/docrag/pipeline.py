@@ -14,3 +14,15 @@ def ask(question: str, cfg: Config) -> tuple[str, list[tuple[float, dict]]]:
     engine = RAGEngine(cfg)
     engine.reload()
     return engine.answer(question, [])
+
+
+def list_documents(cfg: Config) -> list[dict]:
+    """列出已索引的文件:{"name", "chunks"}。"""
+    engine = RAGEngine(cfg)
+    engine.reload()
+    return engine.list_documents()
+
+
+def delete_file(name: str, cfg: Config) -> dict:
+    """删除一个文件及其 chunk/向量。返回 {"deleted", "found", "total_chunks"}。"""
+    return RAGEngine(cfg).delete_file(name)

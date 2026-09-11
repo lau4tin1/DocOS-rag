@@ -193,10 +193,11 @@ class RAGEngine:
     def delete_file(self, name: str) -> dict:
         """删除一个文件(连同其 chunk 与向量)。name 为文件名。"""
         target = Path(self.cfg.paths.raw_dir) / name
-        if target.exists():
+        existed = target.exists()
+        if existed:
             target.unlink()
         n = self.build_index()  # 增量索引会自动移除该文件的 chunk/向量
-        return {"deleted": name, "total_chunks": n}
+        return {"deleted": name, "found": existed, "total_chunks": n}
 
     # ---------- 检索与生成 ----------
 
