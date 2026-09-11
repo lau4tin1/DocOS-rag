@@ -21,6 +21,10 @@ const dropZoneEl = $("#drop-zone");
 const fileInputEl = $("#file-input");
 const statusEl = $("#upload-status");
 
+function scrollToBottom() {
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
 // ---- 文档列表 ----
 async function refreshDocuments() {
   const res = await fetch("/api/documents");
@@ -88,72 +92,100 @@ fileInputEl.addEventListener("change", () => {
 });
 
 // ---- 聊天 ----
-function scrollToBottom() {
-  messagesEl.scrollTop = messagesEl.scrollHeight;
+function appendSources(wrap, sources) {
+  if (!sources || !sources.length) return;
+  const details = document.createElement("details");
+  details.className = "sources";
+  const summary = document.createElement("summary");
+  summary.textContent = `来源 (${sources.length})`;
+  details.appendChild(summary);
+  for (const s of sources) {
+    const p = document.createElement("div");
+    p.className = "source";
+    p.textContent = `[${s.score}] ${s.section || s.source} — ${s.text}`;
+    details.appendChild(p);
+  }
+  wrap.appendChild(details);
 }
 
 function addMessage(role, text, sources) {
   const wrap = document.createElement("div");
   wrap.className = "msg " + role;
-
   const bubble = document.createElement("div");
   bubble.className = "bubble";
   bubble.textContent = text;
   wrap.appendChild(bubble);
-
-  if (sources && sources.length) {
-    const details = document.createElement("details");
-    details.className = "sources";
-    const summary = document.createElement("summary");
-    summary.textContent = `来源 (${sources.length})`;
-    details.appendChild(summary);
-    for (const s of sources) {
-      const p = document.createElement("div");
-      p.className = "source";
-      p.textContent = `[${s.score}] ${s.section || s.source} — ${s.text}`;
-      details.appendChild(p);
-    }
-    wrap.appendChild(details);
-  }
-
-  messagesEl.appendChild(wrap);
-  scrollToBottom();
-}
-
-function addThinking() {
-  const wrap = document.createElement("div");
-  wrap.className = "msg assistant";
-  const bubble = document.createElement("div");
-  bubble.className = "bubble thinking";
-  bubble.textContent = "思考中...";
-  wrap.appendChild(bubble);
+  appendSources(wrap, sources);
   messagesEl.appendChild(wrap);
   scrollToBottom();
   return wrap;
 }
 
-formEl.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const text = inputEl.value.trim();
-  if (!text) return;
-  inputEl.value = "";
+async function streamChat(text) {
   addMessage("user", text);
 
-  const thinking = addThinking();
+  // 先放一个空的助手气泡,边收边往里填
+  const wrap = document.createElement("div");
+  wrap.className = "msg assistant";
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  bubble.textContent = "";
+  wrap.appendChild(bubble);
+  messagesEl.appendChild(wrap);
+  scrollToBottom();
+
+  let sources = null;
+
   try {
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message: text, conversation_id: conversationId }),
     });
-    const data = await res.json();
-    if (data.conversation_id) conversationId = data.conversation_id;
-    thinking.remove();
-    addMessage("assistant", data.answer, data.sources);
+    if (!res.ok) throw new Error("HTTP " + res.status);
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+
+      let idx;
+      while ((idx = buf.indexOf("\n\n")) !== -1) {
+        const raw = buf.slice(0, idx).trim();
+        buf = buf.slice(idx + 2);
+        if (!raw.startsWith("data:")) continue;
+        let ev;
+        try {
+          ev = JSON.parse(raw.slice(5).trim());
+        } catch {
+          continue;
+        }
+        if (ev.type === "sources") {
+          sources = ev.sources;
+        } else if (ev.type === "delta") {
+          bubble.textContent += ev.text;
+          scrollToBottom();
+        }
+      }
+    }
+
+    if (sources && sources.length) appendSources(wrap, sources);
   } catch (err) {
-    thinking.remove();
-    addMessage("assistant", "出错了:" + err.message);
+    bubble.textContent += "\n[连接出错:" + err.message + "]";
+    scrollToBottom();
   }
+}
+
+formEl.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const text = inputEl.value.trim();
+  if (!text) return;
+  inputEl.value = "";
+  streamChat(text);
 });
 
 // ---- 新对话 ----

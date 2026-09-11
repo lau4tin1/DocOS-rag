@@ -47,3 +47,16 @@ def test_generate_routes_deepseek(monkeypatch):
 def test_generate_unknown_provider_raises():
     with pytest.raises(ValueError):
         llm.generate("s", "u", LLMConfig(provider="nope"))
+
+
+def test_stream_messages_routes_deepseek(monkeypatch):
+    def fake(messages, cfg, base_url, api_key_env):
+        assert base_url.rstrip("/").endswith("api.deepseek.com/v1")
+        assert api_key_env == "DEEPSEEK_API_KEY"
+        yield "hello"
+        yield " world"
+
+    monkeypatch.setattr(llm, "_stream_openai_compat", fake)
+    cfg = LLMConfig(provider="deepseek")
+    msgs = [{"role": "user", "content": "u"}]
+    assert list(llm.stream_messages(msgs, cfg)) == ["hello", " world"]

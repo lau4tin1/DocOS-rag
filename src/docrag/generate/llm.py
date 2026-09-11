@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 
 import httpx
@@ -136,3 +137,102 @@ def _anthropic(messages: list[dict], cfg: LLMConfig) -> str:
     )
     resp.raise_for_status()
     return resp.json()["content"][0]["text"]
+
+
+def stream_messages(messages: list[dict], cfg: LLMConfig):
+    """流式生成:逐段 yield 文本增量(delta)。生成器,配合 SSE 使用。"""
+    if cfg.provider == "openai":
+        yield from _stream_openai_compat(
+            messages, cfg, "https://api.openai.com/v1", "OPENAI_API_KEY"
+        )
+    elif cfg.provider == "deepseek":
+        yield from _stream_openai_compat(
+            messages, cfg, "https://api.deepseek.com/v1", "DEEPSEEK_API_KEY"
+        )
+    elif cfg.provider == "anthropic":
+        yield from _stream_anthropic(messages, cfg)
+    else:
+        raise ValueError(
+            f"不支持的 provider: {cfg.provider!r}(可选 openai | deepseek | anthropic)"
+        )
+
+
+def _stream_openai_compat(
+    messages: list[dict],
+    cfg: LLMConfig,
+    base_url: str,
+    api_key_env: str,
+):
+    api_key = os.environ.get(api_key_env)
+    if not api_key:
+        raise RuntimeError(f"请先设置环境变量 {api_key_env}")
+
+    with httpx.stream(
+        "POST",
+        base_url.rstrip("/") + "/chat/completions",
+        headers={"Authorization": f"Bearer {api_key}"},
+        json={
+            "model": cfg.model,
+            "temperature": cfg.temperature,
+            "max_tokens": cfg.max_tokens,
+            "messages": messages,
+            "stream": True,
+        },
+        timeout=None,
+    ) as resp:
+        resp.raise_for_status()
+        for line in resp.iter_lines():
+            if not line or not line.startswith("data:"):
+                continue
+            payload = line[5:].strip()
+            if payload == "[DONE]":
+                break
+            try:
+                obj = json.loads(payload)
+            except ValueError:
+                continue
+            choices = obj.get("choices") or []
+            if choices:
+                content = (choices[0].get("delta") or {}).get("content")
+                if content:
+                    yield content
+
+
+def _stream_anthropic(messages: list[dict], cfg: LLMConfig):
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise RuntimeError("请先设置环境变量 ANTHROPIC_API_KEY")
+
+    system = next((m["content"] for m in messages if m["role"] == "system"), "")
+    chat = [m for m in messages if m["role"] != "system"]
+
+    with httpx.stream(
+        "POST",
+        "https://api.anthropic.com/v1/messages",
+        headers={
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        },
+        json={
+            "model": cfg.model,
+            "temperature": cfg.temperature,
+            "max_tokens": cfg.max_tokens,
+            "system": system,
+            "messages": chat,
+            "stream": True,
+        },
+        timeout=None,
+    ) as resp:
+        resp.raise_for_status()
+        for line in resp.iter_lines():
+            if not line or not line.startswith("data:"):
+                continue
+            try:
+                obj = json.loads(line[5:].strip())
+            except ValueError:
+                continue
+            if obj.get("type") == "content_block_delta":
+                text = (obj.get("delta") or {}).get("text")
+                if text:
+                    yield text

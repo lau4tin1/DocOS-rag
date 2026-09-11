@@ -192,6 +192,36 @@ class RAGEngine:
         answer = llm.generate_messages(messages, self.cfg.llm)
         return answer, results
 
+    def stream_answer(self, question: str, history: list[dict]):
+        """流式版本:先发 sources 事件,再逐段发 delta,最后发 done。
+
+        事件为 dict:{"type": "sources"|"delta"|"done", ...}。
+        """
+        results = self.retrieve(question)
+        sources = [
+            {
+                "score": round(score, 4),
+                "source": chunk.get("source", ""),
+                "section": chunk.get("section", ""),
+                "text": chunk.get("text", "")[:300],
+            }
+            for score, chunk in results
+        ]
+        yield {"type": "sources", "sources": sources}
+
+        if not results:
+            yield {"type": "delta", "text": "还没有索引任何文档,请先上传 .md / .txt / .pdf 文件。"}
+            yield {"type": "done"}
+            return
+
+        messages = llm.build_chat_messages(results, question, history)
+        try:
+            for delta in llm.stream_messages(messages, self.cfg.llm):
+                yield {"type": "delta", "text": delta}
+        except Exception as e:  # 例如没配 key、网络失败
+            yield {"type": "delta", "text": f"\n[生成失败:{e}]"}
+        yield {"type": "done"}
+
     def list_documents(self) -> list[dict]:
         """返回已索引文件:名称 + 片段数。"""
         counts = Counter(c["source"] for c in self.chunks)

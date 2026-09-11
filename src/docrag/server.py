@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, File, UploadFile
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -23,6 +25,11 @@ conversations: dict[str, list[dict]] = {}
 app = FastAPI(title="DocRAG 检索助手")
 
 FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
+
+
+def _sse(event: dict) -> str:
+    """把一个事件 dict 转成 Server-Sent Events 的一帧。"""
+    return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
 
 class ChatRequest(BaseModel):
@@ -57,27 +64,20 @@ def chat(req: ChatRequest):
     cid = req.conversation_id or uuid.uuid4().hex
     history = conversations.get(cid, [])
 
-    try:
-        answer, results = engine.answer(req.message, history)
-        sources = [
-            {
-                "score": round(score, 4),
-                "source": chunk.get("source", ""),
-                "section": chunk.get("section", ""),
-                "text": chunk.get("text", "")[:300],
-            }
-            for score, chunk in results
-        ]
-    except Exception as e:  # 例如没配 API key、网络失败等,返回友好信息而非 500
-        answer = f"生成失败:{e}"
-        sources = []
+    def event_stream():
+        full = ""
+        try:
+            for ev in engine.stream_answer(req.message, history):
+                if ev.get("type") == "delta":
+                    full += ev.get("text", "")
+                yield _sse(ev)
+        finally:
+            # 无论成功/失败,都把完整答案写入历史
+            history.append({"role": "user", "content": req.message})
+            history.append({"role": "assistant", "content": full})
+            conversations[cid] = history[-(MAX_HISTORY_TURNS * 2):]
 
-    # 更新历史(限制长度,避免无限增长)
-    history.append({"role": "user", "content": req.message})
-    history.append({"role": "assistant", "content": answer})
-    conversations[cid] = history[-(MAX_HISTORY_TURNS * 2):]
-
-    return {"conversation_id": cid, "answer": answer, "sources": sources}
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 # 前端静态文件:最后挂载,避免吞掉 /api 路由;html=True 使 "/" 直接返回 index.html
