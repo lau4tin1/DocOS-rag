@@ -71,10 +71,16 @@ DocOS-rag/
 │   │   ├── hybrid.py         # 向量+BM25 的 RRF 融合
 │   │   └── reranker.py       # 交叉编码器精排
 │   ├── generate/
-│   │   └── llm.py            # prompt 组装 + 调用 LLM
-│   ├── pipeline.py           # 把上面串成 build_index / ask
+│   │   └── llm.py            # prompt 组装 + 调用 LLM(多轮)
+│   ├── engine.py             # RAGEngine:常驻模型 + 索引 + 检索/生成
+│   ├── server.py             # FastAPI:上传/聊天/文档列表/静态托管
+│   ├── pipeline.py           # 把上面串成 build_index / ask(委托 engine)
 │   └── cli.py                # 命令行入口
-└── tests/                    # 单元测试(26 个,pytest)
+├── frontend/                 # Web 界面(原生 HTML/CSS/JS)
+│   ├── index.html
+│   ├── style.css
+│   └── app.js
+└── tests/                    # 单元测试(27 个,pytest)
 ```
 
 ### 分层原则
@@ -175,10 +181,12 @@ rrf(d) = 1/(k + rank_向量(d)) + 1/(k + rank_BM25(d))
 | 检索 | `retrieve/retriever.py` | 纯向量检索(查询→向量→top-k) |
 | 检索 | `retrieve/hybrid.py` | `rrf_fuse` 纯函数 + `HybridRetriever` 组合向量与 BM25 |
 | 检索 | `retrieve/reranker.py` | 交叉编码器精排(两阶段检索的第二阶段) |
-| 生成 | `generate/llm.py` | `build_prompt` 拼上下文;`generate` 按 provider 分发到 OpenAI/DeepSeek/Anthropic |
-| 编排 | `pipeline.py` | `build_index`(加载→切分→向量化→存盘,增量);`ask`(召回→精排→拼 prompt→生成) |
-| 命令行 | `cli.py` | `docrag index` / `docrag ask "..." [--show-sources]` |
-| 测试 | `tests/` | 26 个单元测试,覆盖切分/BM25/索引/混合/rerank/llm/loader/config,秒级、不加载模型 |
+| 生成 | `generate/llm.py` | `build_prompt` 拼上下文;`generate_messages` 按 provider 分发(支持多轮) |
+| 编排 | `engine.py` | `RAGEngine`:常驻模型 + 索引 + 增量建索引 + 两阶段检索 + 生成 |
+| 编排 | `pipeline.py` | CLI 入口,委托 `engine`(保持 `build_index`/`ask` 接口) |
+| 服务 | `server.py` | FastAPI:`/api/upload`(上传+自动索引)、`/api/chat`(多轮)、`/api/documents`、静态托管 |
+| 命令行 | `cli.py` | `docrag index` / `docrag ask "..." [--show-sources]`;`docrag-web` 起服务 |
+| 测试 | `tests/` | 27 个单元测试,覆盖切分/BM25/索引/混合/rerank/llm/loader/config,秒级、不加载模型 |
 
 ---
 
@@ -187,7 +195,6 @@ rrf(d) = 1/(k + rank_向量(d)) + 1/(k + rank_BM25(d))
 ### 4.1 环境要求
 
 - Python ≥ 3.10
-- 内存 ≥ 8G(本地只跑 embedding 小模型,足够;LLM 在云端)
 - Apple 芯片(M1/M2/M3)可用 MPS 加速;NVIDIA 用 CUDA;其余用 CPU
 
 ### 4.2 安装
@@ -259,7 +266,26 @@ docrag ask "安装时报权限错误怎么办?" --show-sources
 
 `--show-sources` 会打印命中的片段来源、章节、得分和内容预览,方便观察检索质量。
 
-### 4.7 测试
+### 4.7 Web 界面(多轮对话)
+
+除了命令行,还有一个带界面的 web 版(拖拽上传 + 多轮对话):
+
+```bash
+export DEEPSEEK_API_KEY=sk-...
+docrag-web            # 或:uvicorn docrag.server:app
+```
+
+浏览器打开 http://127.0.0.1:8000 :
+
+- 左侧**拖拽或点选** `.md/.txt/.pdf` 文件,上传后**自动增量建索引**;
+- 右侧是**多轮对话**:服务器记住每个会话的上下文,支持代词/省略指代;
+- 每条回答附**可折叠的来源**(命中片段 + 章节 + 得分);
+- "开始新对话"按钮切换会话。对话历史存内存,重启清空。
+
+> 服务启动时只加载索引,**模型是懒加载**——所以第一次提问会稍慢(加载
+> embedding 模型),之后一直复用、很快。
+
+### 4.8 测试
 
 ```bash
 pip install -e ".[dev]"
@@ -268,9 +294,10 @@ pytest
 
 测试只用少量合成输入,不加载模型、不联网,秒级完成。重依赖(embedding/交叉编码器)在测试里用假对象注入。
 
-### 4.8 常见问题
+### 4.9 常见问题
 
 - **需要 Docker 吗?** 不需要。`.venv` 已提供依赖隔离;只有当你要部署成常驻服务或引入向量数据库时,才值得引入 Docker。
 - **能跑在 8G 内存的 M1 上吗?** 能。本地只跑 embedding 小模型,LLM 在云端。
 - **DeepSeek 能做 embedding 吗?** 不能,DeepSeek 没有 embedding 接口,所以向量化本地跑、生成走 API。
 - **改模型/切分参数后需要手动重建吗?** 不需要,配置签名变了会自动全量重建。
+- **需要数据库吗?** 目前不需要。单用户本地工具用文件系统 + 内存即可;多用户/海量数据时再上 SQLite。

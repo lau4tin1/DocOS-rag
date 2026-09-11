@@ -14,16 +14,32 @@ def test_build_prompt_includes_context_and_question():
     assert "不要编造" in system  # 系统提示里有关键约束
 
 
+def test_build_chat_messages_includes_history():
+    results = [(0.9, {"source": "a.md", "section": "S", "text": "内容"})]
+    history = [
+        {"role": "user", "content": "上一个问题"},
+        {"role": "assistant", "content": "上一个回答"},
+    ]
+    msgs = llm.build_chat_messages(results, "当前问题?", history)
+    assert msgs[0]["role"] == "system"
+    assert msgs[1] == {"role": "user", "content": "上一个问题"}
+    assert msgs[2] == {"role": "assistant", "content": "上一个回答"}
+    assert msgs[-1]["role"] == "user"
+    assert "当前问题?" in msgs[-1]["content"]
+    assert "内容" in msgs[-1]["content"]
+
+
 def test_generate_routes_deepseek(monkeypatch):
     calls = []
 
-    def fake(system, user, cfg, base_url, api_key_env):
+    def fake(messages, cfg, base_url, api_key_env):
         calls.append((base_url, api_key_env))
         return "OK"
 
-    monkeypatch.setattr(llm, "_generate_openai_compatible", fake)
+    monkeypatch.setattr(llm, "_openai_compat", fake)
     cfg = LLMConfig(provider="deepseek")
-    assert llm.generate("s", "u", cfg) == "OK"
+    msgs = [{"role": "system", "content": "s"}, {"role": "user", "content": "u"}]
+    assert llm.generate_messages(msgs, cfg) == "OK"
     assert calls[0][0].rstrip("/").endswith("api.deepseek.com/v1")
     assert calls[0][1] == "DEEPSEEK_API_KEY"
 

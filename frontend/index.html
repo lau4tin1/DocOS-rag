@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DocRAG 检索助手</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <h1 class="brand">📚 DocRAG</h1>
+      <p class="subtitle">技术文档智能检索助手</p>
+
+      <div id="drop-zone" class="drop-zone">
+        <p class="dz-title">拖拽文件到这里</p>
+        <p class="dz-or">或</p>
+        <button id="pick-btn" class="btn">选择文件</button>
+        <p class="hint">支持 .md / .txt / .pdf</p>
+        <input type="file" id="file-input" multiple accept=".md,.markdown,.txt,.pdf" hidden>
+      </div>
+      <div id="upload-status" class="status"></div>
+
+      <h2 class="section-title">已索引文档</h2>
+      <ul id="doc-list" class="doc-list"></ul>
+
+      <button id="new-chat-btn" class="btn btn-ghost">开始新对话</button>
+    </aside>
+
+    <main class="chat">
+      <div id="messages" class="messages">
+        <div class="welcome">
+          <p>👋 你好,我是 DocRAG。</p>
+          <p>先在左侧上传文档,然后问我关于文档的任何问题。</p>
+        </div>
+      </div>
+      <form id="chat-form" class="chat-input">
+        <input type="text" id="message-input" placeholder="输入你的问题,回车发送..." autocomplete="off">
+        <button type="submit" class="btn btn-send">发送</button>
+      </form>
+    </main>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>
